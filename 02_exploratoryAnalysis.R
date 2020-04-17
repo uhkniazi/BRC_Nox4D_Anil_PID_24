@@ -154,16 +154,22 @@ oDiag.3 = CDiagnosticPlotsSetParameters(oDiag.3, l)
 plot.PCA(oDiag.2, fBatch)
 plot.PCA(oDiag.3, fBatch)
 plot.dendogram(oDiag.2, fBatch, labels_cex = 0.7)
-plot.dendogram(oDiag.3, fBatch, labels_cex = 0.7)
+plot.dendogram(oDiag.3, fBatch, labels_cex = 1)
 
 par(mfrow=c(1,1))
 l = factor(dfSample.2$group1):factor(dfSample.2$group2)
 fBatch = factor(dfSample.2$group3)
 fDesc = strsplit(dfSample.2$description, ';')
-fDesc = factor(sapply(fDesc, function(x) return(x[9])))
+fDesc = factor(sapply(fDesc, function(x) return(x[11])))
 plot.PCA(oDiag.3, l, csLabels = as.character(fDesc))
 plot.PCA(oDiag.3, fDesc)
 plot.dendogram(oDiag.3, fDesc, labels_cex = 1)
+
+fNewDay = rep('Low', times=length(fDesc))
+fNewDay[fDesc %in% c('Day_5', 'Day_6', 'Day_7', 'Day_8')] = 'High'
+fNewDay = factor(fNewDay, levels = c('Low', 'High'))
+plot.PCA(oDiag.3, fNewDay, legend.pos = 'topleft')
+
 # ## extreme values
 # oDiag.1 = calculateExtremeValues(oDiag.1)
 # oDiag.2 = calculateExtremeValues(oDiag.2)
@@ -203,7 +209,7 @@ fDesc = factor(sapply(fDesc, function(x) return(x[9])))
 dfData$fParent = fDesc
 fDesc = strsplit(dfSample.2$description, ';')
 fDesc = factor(sapply(fDesc, function(x) return(x[11])))
-dfData$fDay = fDesc
+dfData$fDay = fNewDay#fDesc
 
 densityplot(~ values | ind, groups=fDay, data=dfData, auto.key = list(columns=3), scales=list(relation='free'))
 densityplot(~ values | ind, groups=fTreatment, data=dfData, auto.key = list(columns=3), scales=list(relation='free'))
@@ -312,7 +318,7 @@ plot(LOOPk(fit.stan.3) ~ WAIC(fit.stan.3, pointwise = T))
 ct = coeftab(fit.stan.3, fit.stan.2.p, fit.stan.2.d, fit.stan.1)
 rn = rownames(ct@coefs)
 i = grep('betas', rn)
-plot(ct, pars=rn[i[1:4]])
+plot(ct, pars=rn[i[1:12]])
 plot(ct, pars=rn[i])
 ############### new simulated data
 ###############
@@ -328,7 +334,7 @@ simulateOne = function(mu, sigma, nu){
 
 ## sample n values, 1000 times
 mDraws.sim = matrix(NA, nrow = nrow(dfData), ncol=300)
-l = extract(fit.stan.3)
+l = extract(fit.stan.1)
 for (i in 1:300){
   p = sample(1:nrow(l$mu), 1)
   mDraws.sim[,i] = simulateOne(l$mu[p,], 
@@ -352,65 +358,55 @@ apply(l$mu[sample(1:5000, 100),], 1, function(x) {
 plot(dfData$values[dfData$ind == 'PC1'], dfData$values[dfData$ind == 'PC2'], 
      col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], main='PCA Components - original and simulated',
      xlab='PC1', ylab='PC2')
+legend('topleft', legend = as.character(levels(dfData$fTreatment)), 
+       fill = c(1:4))
 points(rowMeans(mDraws.sim)[dfData$ind == 'PC1'], rowMeans(mDraws.sim)[dfData$ind == 'PC2'],
        col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], pch='1')
 
 plot(dfData$values[dfData$ind == 'PC1'], dfData$values[dfData$ind == 'PC2'], 
-     col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], main='PCA Components - original and model 3',
-     xlab='PC1', ylab='PC2', xlim=c(-3, 3), ylim=c(-2, 2))
+     col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], main='PCA Components - original and model 1',
+     xlab='PC1', ylab='PC2', xlim=c(-3, 3), ylim=c(-3, 3), pch='*', cex=2)
+legend('topleft', legend = as.character(levels(dfData$fTreatment)), 
+       fill = c(1:4))
 
 apply(mDraws.sim, 2, function(x) {
   points(x[dfData$ind == 'PC1'], x[dfData$ind == 'PC2'],
-         col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], pch=20)
+         col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], pch=20, cex=0.5)
 })
+
+points(dfData$values[dfData$ind == 'PC1'], dfData$values[dfData$ind == 'PC2'], 
+       col=c(1:4)[as.numeric(dfData$fTreatment[dfData$ind == 'PC1'])], pch='*', cex=3)
 
 
 ############## differences in coefficients
 ## get the coefficient of interest - Modules in our case from the random coefficients section
-mCoef = extract(fit.stan.2)$betas
+mCoef = extract(fit.stan.2.d)$betas
 dim(mCoef)
 ## get the intercept at population level
-iIntercept = as.numeric(extract(fit.stan.2)$populationMean)
+iIntercept = as.numeric(extract(fit.stan.2.d)$populationMean)
 ## add the intercept to each coefficient, to get the full coefficient
 mCoef = sweep(mCoef, 1, iIntercept, '+')
 
 ## split the data into the comparisons required
-d = data.frame(cols=1:ncol(mCoef), mods=c(levels(dfData$Coef.1), levels(dfData$Coef.2)))#, levels(dfData$Coef.4)))
-# the split is done below on : symbol
-## split this factor into sub factors
-f = strsplit(as.character(d$mods), ':')
-d = cbind(d, do.call(rbind, f))
+d = data.frame(cols=1:ncol(mCoef), mods=c(levels(dfData$Coef.1), levels(dfData$Coef.3)))#, levels(dfData$Coef.4)))
 head(d)
 
 d[d$`2` == 'PC1',]
 ## main effects + interactions
-tapply(dfData$values, dfData$Coef.3, mean)
-iLei.New.PC1 = rowSums(mCoef[,c(1, 5)])
-iNl.New.PC1 = rowSums(mCoef[,c(3, 5)])
-iLei.Old.PC1 = rowSums(mCoef[,c(1, 7)])
-iNl.Old.PC1 = rowSums(mCoef[,c(3, 7)])
-
-# iWT.PC1.av = rowMeans(cbind(iWT.B2.PC1, iWT.B1.PC1))
-# iKO.PC1.av = rowMeans(cbind(iKO.B2.PC1, iKO.B1.PC1))
-
-## main effects
 tapply(dfData$values, dfData$Coef.1, mean)
-summary(mCoef[,1])
-summary(mCoef[,3])
-
-tapply(dfData$values, dfData$Coef.2, mean)
-mean(mCoef[,5])
-mean(mCoef[,7])
+m = colMeans(mCoef[,1:12])
+names(m) = d$mods[1:12]
 ##########################################
 
-m = cbind(extract(fit.stan.3)$sigmaRan, extract(fit.stan.3)$sigmaPop) 
+m = cbind(extract(fit.stan.2.d)$sigmaRan, extract(fit.stan.2.d)$sigmaPop) 
 dim(m)
 m = log(m)
-colnames(m) = c('Treatment', 'Batch', 'TrBt', 'Residual')
+colnames(m) = c('Treatment', 'Day', 'Residual')
 pairs(m, pch=20, cex=0.5, col='grey')
 
-df = stack(data.frame(m[,-4]))
-histogram(~ values | ind, data=df, xlab='Log SD')
+df = stack(data.frame(m))
+histogram(~ values | ind, data=df, xlab='Log SD', scales=list(relation='free'),
+          ylab='')
 
 ## calculate bayesian p-value for this test statistic
 getPValue = function(Trep, Tobs){
