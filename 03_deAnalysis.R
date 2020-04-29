@@ -181,6 +181,7 @@ fit.stan = sampling(stanDso, data=lStanData, iter=1500, chains=2,
 save(fit.stan, file='results/fit.stan.nb_17Apr.rds')
 ptm.end = proc.time()
 print(fit.stan, c('sigmaRan1'), digits=3)
+print(fit.stan, c('sigmaRan2'), digits=3)
 print(fit.stan, c('phi'), digits=3)
 print(fit.stan, c('rGroupsJitter1'))
 traceplot(fit.stan, c('sigmaRan1[1]'))
@@ -223,7 +224,7 @@ levels(d$fBatch)
 ## repeat this for each comparison
 
 ## get a p-value for each comparison
-l = tapply(d$cols, d$split, FUN = function(x, base='Sham_WT', deflection='MI_Tg') {
+l = tapply(d$cols, d$split, FUN = function(x, base='Sham_WT', deflection='MI_WT') {
   c = x
   names(c) = as.character(d$fBatch[c])
   dif = getDifference(ivData = mCoef[,c[deflection]], ivBaseline = mCoef[,c[base]])
@@ -240,41 +241,53 @@ dfResults$adj.P.Val = p.adjust(dfResults$pvalue, method='BH')
 ### plot the results
 dfResults$logFC = dfResults$difference
 dfResults$P.Value = dfResults$pvalue
-library(org.Hs.eg.db)
+# library(org.Hs.eg.db)
 ## remove X from annotation names
 dfResults$ind = gsub('X', '', as.character(dfResults$ind))
-df = AnnotationDbi::select(org.Hs.eg.db, keys = as.character(dfResults$ind), columns = 'SYMBOL', keytype = 'ENTREZID')
-i = match(dfResults$ind, df$ENTREZID)
-df = df[i,]
-dfResults$SYMBOL = df$SYMBOL
-identical(dfResults$ind, df$ENTREZID)
+# df = AnnotationDbi::select(org.Hs.eg.db, keys = as.character(dfResults$ind), columns = 'SYMBOL', keytype = 'ENSEMBL')
+# i = match(dfResults$ind, df$ENTREZID)
+# df = df[i,]
+dfResults$SYMBOL = as.character(dfResults$ind)
+# identical(dfResults$ind, df$ENTREZID)
 ## produce the plots 
-f_plotVolcano(dfResults, 'lei vs nl')#, fc.lim=c(-2.5, 2.5))
-f_plotVolcano(dfResults, 'lei vs nl', fc.lim=range(dfResults$logFC))
+f_plotVolcano(dfResults, 'MI_WT vs Sham_WT')#, fc.lim=c(-2.5, 2.5))
+f_plotVolcano(dfResults, 'MI_WT vs Sham_WT', fc.lim=range(dfResults$logFC))
 
 m = tapply(dfData$values, dfData$ind, mean)
 i = match(rownames(dfResults), names(m))
 m = m[i]
 identical(names(m), rownames(dfResults))
-plotMeanFC(log(m), dfResults, 0.01, 'lei vs nl')
-table(dfResults$adj.P.Val < 0.01)
+plotMeanFC(log(m), dfResults, 0.01, 'MI_Tg vs Sham_Tg')
+table(dfResults$adj.P.Val < 0.1)
+table(dfResults$pvalue < 0.01)
 ## save the results 
-write.csv(dfResults, file='results/reverse/DEAnalysisLesionalVsNonLesional.xls')
+write.csv(dfResults, file='results/DEAnalysisMIWtVsShamWt.xls')
 
 ######### do a comparison with deseq2
 str(dfSample.2)
-dfDesign = data.frame(Treatment = factor(dfSample.2$group1, levels = c('Non-lesional', 'Lesional')), Patient=factor(dfSample.2$group2),
-                      row.names=colnames(mData))
+f = paste(dfSample.2$group1, dfSample.2$group2, sep='_')
+fTreatment = factor(f)
+fDesc = strsplit(dfSample.2$description, ';')
+fDesc = (sapply(fDesc, function(x) return(x[11])))
+fNewDay = rep('Low', times=length(fDesc))
+fNewDay[fDesc %in% c('Day_5', 'Day_6', 'Day_7', 'Day_8')] = 'High'
+fNewDay = factor(fNewDay, levels = c('Low', 'High'))
 
-oDseq = DESeqDataSetFromMatrix(mData, dfDesign, design = ~ Treatment + Patient)
+dfDesign = data.frame(Treatment = fTreatment, Patient=fNewDay,
+                      row.names=colnames(mData))
+mData2 = apply(mData, 2, as.integer)
+rownames(mData2) = rownames(mData)
+
+oDseq = DESeqDataSetFromMatrix(mData2, dfDesign, design = ~ Treatment)# + Patient)
 oDseq = DESeq(oDseq)
 
 plotDispEsts(oDseq)
-oRes = results(oDseq, contrast = c('Treatment', 'Lesional', 'Non-lesional'))
+oRes = results(oDseq, contrast = c('Treatment', 'MI_WT', 'Sham_WT'))
 plotMA(oRes)
 temp = as.data.frame(oRes)
-i = match((dfResults$ind), rownames(temp))
-temp = temp[i,]
+table(rownames(temp) %in% dfResults$ind)
+dfResults = dfResults[dfResults$ind %in% rownames(temp),]
+temp = temp[dfResults$ind,]
 identical((dfResults$ind), rownames(temp))
 plot(dfResults$logFC, log(2^temp$log2FoldChange), pch=20)
 table(oRes$padj < 0.01)
